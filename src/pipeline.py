@@ -47,9 +47,9 @@ def main() -> int:
         print(f"提示：没有画图（{exc}），报告只包含表格。", file=sys.stderr)
 
     # 6. 写报告
+    # 换成真实数据之后，记得把这句话改掉——报告里写着"示例数据"会很尴尬
     source_note = (
         "示例数据（`python -m src.demo_data` 生成），**不是真实行情**"
-        if "示例" not in str(config.RAW_CSV) else "示例数据"
     )
     text = report.build_report(
         clean_df=clean_df,
