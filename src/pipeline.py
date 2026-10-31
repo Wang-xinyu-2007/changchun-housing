@@ -1,74 +1,72 @@
-"""一条命令跑完整条流水线：读数据 → 清洗 → 入库 → 跑 SQL → 出报告。"""
+"""One command: real CSV -> validation -> SQLite -> SQL -> figures -> report."""
 
 from __future__ import annotations
 
+import json
+import re
 import sys
 
-import pandas as pd
+from . import analysis, config, report, store
 
-from . import clean, config, report, store
+
+def _load_meta() -> dict[str, object]:
+    if config.META_JSON.exists():
+        return json.loads(config.META_JSON.read_text(encoding="utf-8"))
+    return {}
+
+
+def _update_readme_snapshot(facts: dict[str, object]) -> None:
+    """Keep the short latest-results block in README.md in sync with reports."""
+    readme_path = config.ROOT / "README.md"
+    if not readme_path.exists():
+        return
+    text = readme_path.read_text(encoding="utf-8")
+    pattern = re.compile(
+        re.escape(report.README_START) + r".*?" + re.escape(report.README_END),
+        re.DOTALL,
+    )
+    if not pattern.search(text):
+        return
+    updated = pattern.sub(lambda _: report.build_readme_snapshot(facts), text)
+    if updated != text:
+        readme_path.write_text(updated, encoding="utf-8")
 
 
 def main() -> int:
-    # 1. 读原始数据（全部按字符串读，让 clean 决定怎么解析）
     if not config.RAW_CSV.exists():
         print(f"找不到数据文件：{config.RAW_CSV}", file=sys.stderr)
-        print("先跑一次 `python -m src.demo_data` 生成示例数据，", file=sys.stderr)
-        print("或者把你的真实数据放到这个路径。", file=sys.stderr)
+        print("先运行 `python -m src.update --backfill 48` 抓取真实数据。", file=sys.stderr)
         return 2
 
-    raw = pd.read_csv(config.RAW_CSV, dtype=str, keep_default_na=False)
-    missing = clean.describe_missing(raw.replace("", pd.NA))
+    frame = analysis.load_dataset(config.RAW_CSV)
+    try:
+        analysis.validate_dataset(frame)
+    except ValueError as error:
+        print(f"数据校验失败：{error}", file=sys.stderr)
+        return 1
 
-    # 2. 清洗
-    clean_df, stats = clean.clean(raw)
-
-    # 3. 入库
-    store.write_sqlite(clean_df, config.DB_PATH)
-
-    # 4. 跑 SQL
+    facts = analysis.build_facts(frame)
+    meta = _load_meta()
+    store.write_sqlite(frame, config.DB_PATH)
     queries = store.load_queries(config.SQL_FILE)
     results = store.run_queries(config.DB_PATH, queries)
 
-    # 5. 出图（matplotlib 没装的话跳过，不影响报告生成）
-    figures: dict[str, object] = {}
-    hist_figure = None
-    try:
-        first = results.get("各区均价与房源数")
-        if first is not None:
-            figures["各区均价与房源数"] = report.plot_district_price(
-                first, "区域", "均价", config.FIGURE_DIR)
-        second = results.get("面积段与均价")
-        if second is not None:
-            figures["面积段与均价"] = report.plot_area_band(
-                second, "面积段", "均价", config.FIGURE_DIR)
-        hist_figure = report.plot_price_hist(clean_df, config.FIGURE_DIR)
-    except ImportError as exc:
-        print(f"提示：没有画图（{exc}），报告只包含表格。", file=sys.stderr)
-
-    # 6. 写报告
-    # 换成真实数据之后，记得把这句话改掉——报告里写着"示例数据"会很尴尬
-    source_note = (
-        "示例数据（`python -m src.demo_data` 生成），**不是真实行情**"
-    )
-    text = report.build_report(
-        clean_df=clean_df,
-        stats=stats,
-        results=results,
-        missing=missing,
-        source_note=source_note,
-        figures=figures,
-        hist_figure=hist_figure,
-    )
+    figures = {
+        "yoy": report.plot_yoy_trend(frame, config.FIGURE_DIR),
+        "cumulative": report.plot_cumulative(frame, config.FIGURE_DIR),
+        "peers": report.plot_peer_comparison(facts, config.FIGURE_DIR),
+    }
+    text = report.build_report(frame, facts, results, meta, figures)
     config.REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     config.REPORT_PATH.write_text(text, encoding="utf-8")
+    _update_readme_snapshot(facts)
 
-    # 7. 终端摘要
-    print(f"原始行数    {stats['原始行数']}")
-    print(f"清洗后行数  {stats['最终行数']}（保留 {stats['保留比例']}）")
+    print(f"数据月份    {facts['data_start']} → {facts['data_end']}（{facts['months_covered']} 个月）")
+    print(f"最新快照    新房 {facts['focus']['new']['yoy_index']:.1f} / 二手房 {facts['focus']['second_hand']['yoy_index']:.1f}")
     print(f"数据库      {config.DB_PATH}")
     print(f"查询        {len(results)} 条")
     print(f"报告        {config.REPORT_PATH}")
+    print(f"图表        {', '.join(path.name for path in figures.values())}")
     return 0
 
 

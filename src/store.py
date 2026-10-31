@@ -1,9 +1,8 @@
-"""存储层：清洗结果写进 SQLite，然后直接用 SQL 问问题。
+"""SQLite storage and SQL question runner.
 
-为什么用 SQL 而不是 pandas 一口气算完？
-因为真实工作里，分析师的 80% 时间在 SQL 上，而且 SQL 写得好，
-换工具（Excel/BI/数据库）也照样能用。这个项目刻意把「问什么」
-和「怎么算」分开：问题写在 sql/questions.sql，代码只负责执行。
+The data is small enough for pandas, but the project intentionally keeps the
+questions in SQL so the analysis layer can be inspected and reused by any BI
+or database tool.
 """
 
 from __future__ import annotations
@@ -15,31 +14,30 @@ from pathlib import Path
 import pandas as pd
 
 
-def write_sqlite(df: pd.DataFrame, db_path: Path, table: str = "listings") -> Path:
-    """整表写入 SQLite（每次覆盖，保证可复现）。"""
+def write_sqlite(df: pd.DataFrame, db_path: Path, table: str = "housing_index") -> Path:
+    """Replace the SQLite database with the current tidy dataset."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     if db_path.exists():
         db_path.unlink()
 
-    # 注意：`with sqlite3.connect(...)` 只负责提交事务，不会关闭连接。
-    # Windows 上不关连接，文件就会被锁住，删都删不掉。
-    conn = sqlite3.connect(db_path)
+    connection = sqlite3.connect(db_path)
     try:
-        df.to_sql(table, conn, index=False)
-        conn.execute(f"CREATE INDEX idx_{table}_district ON {table}(district)")
-        conn.commit()
+        df.to_sql(table, connection, index=False)
+        connection.execute(f"CREATE INDEX idx_{table}_month ON {table}(month)")
+        connection.execute(f"CREATE INDEX idx_{table}_city ON {table}(city)")
+        connection.execute(f"CREATE INDEX idx_{table}_market ON {table}(market)")
+        connection.commit()
     finally:
-        conn.close()
+        connection.close()
     return db_path
 
 
 def load_queries(sql_path: Path) -> list[dict[str, str]]:
-    """解析 sql/questions.sql。
+    """Parse `sql/questions.sql` into named queries.
 
-    文件格式（一条查询一段）：
-
-        -- name: 各区均价
-        -- 说明: 用来看哪个区最贵
+    Format:
+        -- name: 长春最新快照
+        -- 说明: ...
         SELECT ...;
     """
     text = sql_path.read_text(encoding="utf-8")
@@ -56,12 +54,12 @@ def load_queries(sql_path: Path) -> list[dict[str, str]]:
 
 
 def run_queries(db_path: Path, queries: list[dict[str, str]]) -> dict[str, pd.DataFrame]:
-    """依次执行所有查询，返回 {名字: 结果表}。"""
+    """Run every named query and return the result frames."""
     results: dict[str, pd.DataFrame] = {}
-    conn = sqlite3.connect(db_path)
+    connection = sqlite3.connect(db_path)
     try:
         for query in queries:
-            results[query["name"]] = pd.read_sql_query(query["sql"], conn)
+            results[query["name"]] = pd.read_sql_query(query["sql"], connection)
     finally:
-        conn.close()
+        connection.close()
     return results
