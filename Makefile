@@ -1,11 +1,17 @@
-PYTHON ?= python3
+PYTHON ?= python
 
-.PHONY: all demo run test clean
+.PHONY: all setup update backfill run test clean
 
-all: demo run
+all: run
 
-demo:
-	$(PYTHON) -m src.demo_data
+setup:
+	$(PYTHON) -m pip install -r requirements.txt
+
+update:
+	$(PYTHON) -m src.update --months 2
+
+backfill:
+	$(PYTHON) -m src.update --backfill 48 --force
 
 run:
 	$(PYTHON) -m src.pipeline

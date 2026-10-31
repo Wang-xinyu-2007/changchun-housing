@@ -1,173 +1,191 @@
-# changchun-housing
+# 长春房价指数：国家统计局 70 城真实数据
 
-长春二手房挂牌数据分析：从一张「脏」CSV，到一份能讲给别人听的数据报告。
+把**国家统计局每月发布的 70 个大中城市商品住宅销售价格指数**抓下来、校验、入库、用 SQL 提问，再自动生成图表和报告。
 
-**流程完整、能跑通、有测试**——但 `reports/report.md` 里的「结论」故意留空，那是你要自己写的东西。
+这不是一个“用示例数据跑通流程”的脚手架：仓库里的 `data/raw/nbs_housing_index.csv` 是真实发布数据，覆盖 **2022-10 至 2026-09**、**48 个月、70 个城市、2 个市场**，并且可以通过 GitHub Actions 每月自动更新。
 
-![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+> **重要口径**：NBS 指数是价格**变动**指数，不是成交均价。环比“上月 = 100”，同比“上年同月 = 100”，年内累计“上年同期 = 100”。它不能直接换算成某个小区的每平米单价。
+
 ![Tests](https://github.com/Wang-xinyu-2007/changchun-housing/actions/workflows/tests.yml/badge.svg)
-![Data](https://img.shields.io/badge/data-示例数据%20·%20非真实行情-orange)
+![Update](https://github.com/Wang-xinyu-2007/changchun-housing/actions/workflows/update-data.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![Data](https://img.shields.io/badge/data-NBS%2070--city%20index-orange)
 
 ---
 
-## 这个项目要回答什么
+<!-- LATEST_SNAPSHOT_START -->
+## 最新结果（2026-09）
 
-1. 哪个区最贵、哪个区房源最多？
-2. 小户型单价高，还是大户型高？
-3. 低楼层、高楼层、顶楼，单价差多少？
-4. 房龄对价格的影响有多大？
-5. 哪些小区挂牌量最大（= 最容易出手）？
+| 市场 | 环比 | 同比 | 年内累计 | 同比排名 |
+| --- | --- | --- | --- | --- |
+| 新房 | +0.3% | -0.7% | -1.6% | 9 / 70 |
+| 二手房 | -0.4% | -3.6% | -3.9% | 17 / 70 |
 
-对应 `sql/questions.sql` 里的五段 SQL，加一段就会被自动跑到。
+- 同月 70 城新房同比中位数为 **96.6**，二手房为 **95.0**。
+- 新房同比比二手房高 **+2.9 个指数点**，环比高 **+0.7 个指数点**。
+- 以 2022-10 为 100，到 2026-09 新房累计指数 **89.8**，二手房 **80.4**。
+- 二手房：在本数据覆盖期内连续 48 个月同比下降（数据自 2022-10 起）。
+<!-- LATEST_SNAPSHOT_END -->
+
+完整报告：[`reports/report.md`](reports/report.md)  
+SQL 问题：[`sql/questions.sql`](sql/questions.sql)  
+数据说明：[`data/raw/README.md`](data/raw/README.md)
 
 ---
 
-## 30 秒跑起来
+## 为什么这个项目值得看
+
+它把一条真实数据的完整链路跑通了，而不是只展示一个分析结论：
+
+1. **真实来源**：通过 NBS 公开搜索接口定位每月发布页，解析官方 HTML 表格，保存来源 URL 和抓取元数据。
+2. **可更新**：`python -m src.update --months 2` 检查最新发布；GitHub Actions 每月 20/25 日自动运行。
+3. **可验证**：校验 70 个城市、2 个市场、月份/市场/城市唯一性、指数范围；NBS 改版时更新会失败，而不是静默写入错误数据。
+4. **可复现**：`python -m src.pipeline` 从已提交 CSV 重建 SQLite、SQL 结果、3 张图和整份报告。
+5. **有边界**：报告明确说明指数不是成交价、城市级不是小区级、没有成交量，不能做因果解释。
+
+---
+
+## 快速开始
 
 ```bash
 git clone https://github.com/Wang-xinyu-2007/changchun-housing.git
 cd changchun-housing
+
 python -m pip install -r requirements.txt
 
-python -m src.demo_data    # 生成示例数据（840 行，带脏数据）
-python -m src.pipeline     # 清洗 → 入库 → 跑 SQL → 出报告
+# 用已提交的真实数据重建数据库、SQL、图表和报告
+python -m src.pipeline
 
-# 打开 reports/report.md
+# 跑测试（不依赖网络）
+python -m unittest discover -s tests -v
 ```
 
-Windows 上 `python3` 不存在的话，用 `python`；或者 `make all PYTHON=python`。
+想抓取最新发布：
+
+```bash
+python -m src.update --months 2
+python -m src.pipeline
+```
+
+第一次构建/重建完整历史：
+
+```bash
+python -m src.update --backfill 48 --force
+```
+
+`src.update` 会：
+- 搜索每月精确标题；
+- 下载发布页；
+- 解析“新房 / 二手房”两张主表；
+- 校验 70 个城市；
+- 合并去重后写入 `data/raw/`；
+- 更新 `meta.json` 和 `releases.csv`。
+
+如果某个月还没发布、或 NBS 页面结构变化，它会跳过或报错，不会写入不完整的月份。
 
 ---
 
-## 它长什么样
+## 每个月自动更新
 
-![各区二手房挂牌均价](reports/figures/district_price.png)
-
-终端输出：
+[`.github/workflows/update-data.yml`](.github/workflows/update-data.yml) 在每月 **20 日和 25 日**（北京时间上午）运行：
 
 ```text
-原始行数    840
-清洗后行数  780（保留 92.9%）
-数据库      data/processed/housing.db
-查询        5 条
-报告        reports/report.md
+checkout → 安装依赖 → src.update --months 2
+→ src.pipeline → 单元测试
+→ 有变化则提交 data/ 和 reports/
 ```
 
-报告里每个问题都是一张表 + 一张图，例如：
-
-| 区域 | 房源数 | 均价 | 最低价 | 最高价 |
-| --- | --- | --- | --- | --- |
-| 朝阳区 | 122 | 11,332 | 8,767 | 13,431 |
-| 净月区 | 119 | 10,856 | 8,344 | 13,221 |
-| 南关区 | 118 | 9,832 | 7,829 | 12,471 |
-| 宽城区 | 66 | 7,703 | 6,433 | 9,166 |
-
-> 上面是**示例数据**跑出来的结果，用来验证流程，不代表真实行情。
+也可以在 Actions 页面手动触发 `update-data`。NBS 通常在每月 15–20 日发布上一个月数据；25 日再检查一次，给延迟发布留余量。
 
 ---
 
-## 清洗：这个项目最值钱的部分
+## 数据与指标
 
-真实挂牌数据一定长这样，而面试官问得最多的就是「你清洗时遇到最大的问题是什么」。
+| 字段 | 含义 |
+| --- | --- |
+| `month` | `YYYY-MM` |
+| `market` | `new`（新房）/ `second_hand`（二手房） |
+| `city` | NBS 城市名（已去掉全角空格） |
+| `mom_index` | 环比，上月 = 100 |
+| `yoy_index` | 同比，上年同月 = 100 |
+| `ytd_index` | 年内累计，上年同期 = 100；1 月发布可能为空 |
+| `source_url` | 该月 NBS 发布页 |
 
-| 你拿到的 | 处理成 | 为什么 |
-| --- | --- | --- |
-| `朝阳`、`朝阳 `、`朝阳区` | `朝阳区` | 同一个区三种写法，不统一就没法分组 |
-| `85万`、`85.5万` | `85.0` | 带单位的字符串，`float()` 直接报错 |
-| `850000` | `85.0` | 有人按「元」填，直接比会差一万倍 |
-| `89.5㎡`、`90平米` | `89.5`、`90.0` | 面积带单位，要先剥掉 |
-| 同一个 `listing_id` 出现两次 | 只留第一条 | 中介换价格重发，算两次会拉高挂牌量 |
-| 面积 9999、总价 99999 | 丢弃 | 录入错误，留着会毁掉均值 |
-| 单价 0 或空 | `总价 ÷ 面积` 重算 | 比直接丢行更划算：能救回 14 行 |
-
-清洗顺序也是有讲究的：**先统一格式，再去重，再按业务规则过滤，最后才补算缺失值**。
-顺序错了会出现「用脏数据算出脏单价，再拿脏单价去过滤」的连锁错误。
-
-每条规则都有单元测试（`tests/test_clean.py`），改规则的时候跑一下就知道有没有误伤。
+`data/raw/nbs_housing_index.csv` 是 tidy 长表，一行 = 一个月 × 一个市场 × 一个城市。`data/raw/releases.csv` 保存每月标题、URL 和抓取时间；`meta.json` 保存最新月份、覆盖范围、行数、来源 URL 和 CSV SHA-256。
 
 ---
 
-## 为什么用 SQL，而不是 pandas 一把梭
+## 分析内容
 
-因为真实工作里分析师 80% 的时间在写 SQL，而且：
+报告回答这些问题：
 
-- **问什么**（`sql/questions.sql`）和**怎么算**（`src/store.py`）分开，改问题不用动代码；
-- 加一个问题 = 复制一段 SQL，pipeline 自动发现并跑；
-- 同样的逻辑换成 BI 工具、换数据库都还能用。
+1. 长春新房/二手房最新环比、同比、年内累计是多少？
+2. 长春在 70 个城市中同比排第几？
+3. 长春和沈阳、哈尔滨、大连、北京、上海、广州、深圳、杭州、成都相比如何？
+4. 新房和二手房的走势分化有多大？是单月现象还是持续趋势？
+5. 自 2022-10 以来，两个市场累计涨跌了多少？
 
-`pandas` 负责它擅长的部分：清洗、类型转换、画图。
+SQL 覆盖：最新快照、近 12 个月走势、全国排名（窗口函数 `RANK`）、同类城市对比、新房/二手房同比价差。
+
+报告和图表全部由 `src.pipeline` 生成：
+
+- `reports/figures/changchun_yoy.png`：长春新房/二手房同比走势
+- `reports/figures/changchun_cumulative.png`：以 2022-10 为 100 的累计指数
+- `reports/figures/peer_comparison.png`：最新月份与同类城市的同比对比
 
 ---
 
-## 目录结构
+## 项目结构
 
 ```text
-changchun-housing/
-├── src/
-│   ├── config.py      # 路径 + 业务规则（所有"魔法数字"都在这里）
-│   ├── clean.py       # 脏数据清洗（最值得读的文件）
-│   ├── store.py       # 写 SQLite + 执行 SQL
-│   ├── report.py      # 画图 + 生成 Markdown
-│   ├── demo_data.py   # 生成示例数据
-│   └── pipeline.py    # 串起来
-├── sql/questions.sql  # 五个业务问题
-├── tests/             # 23 个单元测试
-├── data/raw/          # 原始数据（示例数据已提交）
-├── reports/           # 报告 + 图（生成物，也提交了，方便直接看）
-├── Makefile
-└── requirements.txt
+src/
+  config.py     # 路径、数据源、城市/市场常量
+  nbs.py        # NBS 搜索、下载、HTML 表格解析
+  update.py     # 增量更新 + 回填 + 校验 + 元数据
+  analysis.py   # 数据校验、累计指数、排名、连续下跌、报告指标
+  store.py      # SQLite 写入与 SQL 查询
+  report.py     # 图表 + Markdown 报告
+  pipeline.py   # 一键重建
+sql/questions.sql
+data/raw/       # 真实 CSV、releases.csv、meta.json、数据说明
+reports/        # 提交的报告和图表
+tests/          # 20 个离线单元/集成测试 + HTML fixture
 ```
-
----
-
-## 换成你自己的数据（重点）
-
-这份仓库是**脚手架**，示例数据只是为了让你先跑通。换成真实数据只要三步：
-
-1. 把 CSV 放到 `data/raw/listings.csv`，列名对齐（列名见 `demo_data.COLUMNS`）；
-2. 改 `src/config.py`：`DISTRICTS` 换成你关心的区、`AREA_MIN/MAX` 这类区间按当地行情调；
-3. `python -m src.pipeline`，报告和图表会自动更新。
-
-**数据从哪来？** 贝壳/链家的小区列表页、各地住建局公开数据、Kaggle 上的房价数据集都行。
-爬数据前先看对方 robots.txt 和用户协议，只取公开列表页、控制频率。
-
----
-
-## 你要接着做的 5 件事
-
-这个仓库交付的是「流程」，`reports/report.md` 第 3 节还是空的。按顺序做：
-
-1. **换成真实数据**（哪怕只有 200 行）——示例数据不构成作品；
-2. **写 3 条结论**，每条都要「一句话 + 一个数字 + 一个解释」，例如：
-   *朝阳区均价 11,332 元/㎡，比宽城区高 47%，可能和学区与新房供给有关；*
-3. **自己加一个 SQL 问题**——比如「按房龄和面积交叉分组，看哪类房子最抗跌」；
-4. **加一个维度**：学区、地铁距离、装修，任选一个能显著区分价格的因素；
-5. **把 README 的图和数据换成你的**——面试官会点开看，图是你的，说服力才是真的。
-
----
-
-## 已知局限
-
-- 挂牌价 ≠ 成交价，真实成交通常比挂牌低 5%~10%；
-- 只有截面数据，没有时间序列，判断不了涨跌；
-- 学区、地铁、装修这些真正影响价格的因素没有进入数据；
-- 异常值用固定区间过滤，可能误伤真实的极端房源（比如别墅）。
-
-**这些限制写进报告，是加分项而不是减分项**——说明你知道自己的分析边界在哪。
 
 ---
 
 ## 测试
 
 ```bash
-python -m unittest discover -s tests -v   # 23 个用例
+python -m unittest discover -s tests -v
 ```
 
-覆盖：金额单位换算、区名归一、去重、异常值过滤、单价重算、SQL 可执行、报告表格格式。
-GitHub Actions 会在每次 push 时跑一遍测试 + 完整 pipeline。
+- **20 个测试**，不访问网络；
+- 解析器使用最小 HTML fixture，覆盖 8 列双城市、6 列无 YTD（1 月）两种版式；
+- 搜索接口使用 mock，验证精确标题匹配；
+- 校验器覆盖重复行、异常指数、城市数量；
+- 集成测试检查真实 CSV 的 70 城完整性，并把 5 条 SQL 真正跑一遍。
+
+CI 还会在干净环境里重新执行 `src.pipeline`，确认报告可重建。
 
 ---
 
-## 许可
+## 已知局限
 
-[MIT](LICENSE)
+- **城市级，不是小区级**：没有区县、面积段、楼层、装修、学区，不能回答“长春哪个区最贵”。
+- **指数不是价格**：只能看变动方向和幅度，不能直接换算成元/平方米。
+- **没有成交量**：不能判断“有价无市”还是“以价换量”，也不能单独解释原因。
+- **发布与修订**：NBS 可能修订历史值；仓库保存的是抓取时点的发布值。
+- **搜索接口不是正式 API**：通过 NBS 公开搜索页使用的查询接口定位发布页；如果接口或页面改版，更新会失败并保留旧数据。
+- **1 月缺少年内累计**：NBS 1 月表没有“1 月平均”列，报告中显示为 `—`。
+
+要解释“为什么”，还需要成交量、收入、人口、土地供给、政策等数据；单看价格指数不够。
+
+---
+
+## 数据来源与许可
+
+- 数据：国家统计局，[70 个大中城市商品住宅销售价格变动情况](https://www.stats.gov.cn/sj/zxfb/)；每月发布页链接保存在 `data/raw/releases.csv`。
+- 代码：MIT。数据版权归国家统计局，仓库仅用于学习、研究与可复现分析；转载数据请注明来源和具体发布页。
+
+> 这是一个个人数据分析项目，不构成投资建议。

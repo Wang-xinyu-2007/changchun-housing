@@ -12,6 +12,7 @@ data/processed/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+*.log
 
 # 编辑器 / 系统
 .vscode/
