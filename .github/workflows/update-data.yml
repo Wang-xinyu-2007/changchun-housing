@@ -36,18 +36,26 @@ jobs:
       - name: Fetch latest NBS release
         run: python -m src.update --months 2
 
+      - name: Check whether new data arrived
+        id: data
+        run: |
+          if git diff --quiet -- data/raw; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Rebuild report and figures
+        if: steps.data.outputs.changed == 'true'
         run: python -m src.pipeline
 
       - name: Run tests
+        if: steps.data.outputs.changed == 'true'
         run: python -m unittest discover -s tests -v
 
       - name: Commit data and report if changed
+        if: steps.data.outputs.changed == 'true'
         run: |
-          if git diff --quiet; then
-            echo "No new release or report changes."
-            exit 0
-          fi
           MONTH=$(python -c "import json; print(json.load(open('data/raw/meta.json'))['latest_month'])")
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
