@@ -1,86 +1,48 @@
-"""全局配置：路径、业务规则、区名对照表。
-
-把所有"魔法数字"集中在一个文件里，是这个项目唯一的设计约定。
-想换城市？改这里的 DISTRICTS 和 DEMO_PROFILE 就行。
-"""
+"""Configuration: paths, official data source, and analysis constants."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# 路径
-# ---------------------------------------------------------------------------
 ROOT = Path(__file__).resolve().parent.parent
 
-RAW_CSV = ROOT / "data" / "raw" / "listings.csv"
+RAW_CSV = ROOT / "data" / "raw" / "nbs_housing_index.csv"
+RELEASES_CSV = ROOT / "data" / "raw" / "releases.csv"
+META_JSON = ROOT / "data" / "raw" / "meta.json"
 DB_PATH = ROOT / "data" / "processed" / "housing.db"
 REPORT_PATH = ROOT / "reports" / "report.md"
 FIGURE_DIR = ROOT / "reports" / "figures"
 SQL_FILE = ROOT / "sql" / "questions.sql"
+FIXTURE_HTML = ROOT / "tests" / "fixtures" / "nbs_release_sample.html"
 
-# ---------------------------------------------------------------------------
-# 业务规则：清洗时的合法区间
-# ---------------------------------------------------------------------------
-# 这些数字不是随便定的，而是「常识 + 看一眼数据分布」的结果。
-# 定得太松，异常值混进来；定得太紧，会误伤真实的极端房源。
-AREA_MIN, AREA_MAX = 10.0, 500.0          # 平方米
-TOTAL_PRICE_MIN, TOTAL_PRICE_MAX = 5.0, 5000.0   # 万元
-UNIT_PRICE_MIN, UNIT_PRICE_MAX = 2000.0, 60000.0  # 元/平方米
-
-# 计算房龄时用哪一年（每年更新一次，或者改成 date.today().year）
-REFERENCE_YEAR = 2026
-
-# 一套房子至少要有这些字段才能分析，缺了就只能丢掉
-REQUIRED_COLUMNS = ("listing_id", "district", "area_m2", "total_price_wan", "unit_price")
-
-UNKNOWN_DISTRICT = "未知"
-
-# ---------------------------------------------------------------------------
-# 区名对照表
-# ---------------------------------------------------------------------------
-# 挂牌数据里同一个区常有不同写法："朝阳" / "朝阳区" / "朝阳 "，
-# 甚至有中介写成"朝阳片区"。先做别名映射，再考虑模糊匹配。
-DISTRICTS = (
-    "朝阳区",
-    "南关区",
-    "宽城区",
-    "二道区",
-    "绿园区",
-    "净月区",
-    "汽开区",
-    "经开区",
+NBS_SEARCH_URL = "https://api.so-gov.cn/query/s"
+NBS_SITE_CODE = "bm36000002"
+NBS_SEARCH_REFERER = "https://www.stats.gov.cn/search/s"
+NBS_RELEASE_TITLE = "{year}年{month}月份70个大中城市商品住宅销售价格变动情况"
+NBS_SOURCE_NAME = "国家统计局：70 个大中城市商品住宅销售价格指数"
+NBS_INDEX_PAGE = "https://www.stats.gov.cn/sj/zxfb/"
+NBS_DATA_NOTE = (
+    "国家统计局每月发布的 70 个大中城市商品住宅销售价格指数；"
+    "指数以上月/上年同月/上年同期为 100，不是成交均价。"
 )
 
-DISTRICT_ALIASES = {
-    "朝阳": "朝阳区",
-    "南关": "南关区",
-    "宽城": "宽城区",
-    "二道": "二道区",
-    "绿园": "绿园区",
-    "净月": "净月区",
-    "净月开发区": "净月区",
-    "净月潭": "净月区",
-    "汽开": "汽开区",
-    "汽车开发区": "汽开区",
-    "汽车经济技术开发区": "汽开区",
-    "经开": "经开区",
-    "经济开发区": "经开区",
-    "经济技术开发区": "经开区",
-}
+EXPECTED_CITIES = 70
+FOCUS_CITY = "长春"
+PEER_CITIES = (
+    "长春",
+    "沈阳",
+    "哈尔滨",
+    "大连",
+    "北京",
+    "上海",
+    "广州",
+    "深圳",
+    "杭州",
+    "成都",
+)
+MARKETS = ("new", "second_hand")
+MARKET_LABELS = {"new": "新房", "second_hand": "二手房"}
+MARKET_COLORS = {"new": "#2f81f7", "second_hand": "#d29922"}
 
-# ---------------------------------------------------------------------------
-# 示例数据用的「各区基准单价」（元/平方米）
-# ---------------------------------------------------------------------------
-# 只用于 scripts 生成的示例数据，不代表真实行情；
-# 换成真实数据时这个字典用不到，可以忽略。
-DEMO_PROFILE = {
-    "朝阳区": (11800, 1.3),
-    "南关区": (10200, 1.1),
-    "净月区": (11300, 1.2),
-    "绿园区": (8900, 0.9),
-    "二道区": (8700, 0.9),
-    "宽城区": (8100, 0.8),
-    "汽开区": (8400, 0.7),
-    "经开区": (9500, 1.0),
-}
+DEFAULT_BACKFILL_MONTHS = 48
+DEFAULT_START_MONTH = "2022-10"

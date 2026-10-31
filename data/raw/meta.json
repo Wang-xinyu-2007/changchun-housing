@@ -1,0 +1,16 @@
+{
+  "source": "国家统计局：70 个大中城市商品住宅销售价格指数",
+  "source_page": "https://www.stats.gov.cn/sj/zxfb/",
+  "latest_month": "2026-09",
+  "data_start": "2022-10",
+  "months_covered": 48,
+  "rows": 6720,
+  "cities": 70,
+  "markets": [
+    "new",
+    "second_hand"
+  ],
+  "latest_release_url": "https://www.stats.gov.cn/sj/zxfbhjd/202610/t20261019_1965609.html",
+  "fetched_at": "2026-10-31T14:55:00+00:00",
+  "dataset_sha256": "75efbc8afb8a16fbd71ad5a73f6444faf46f8d6b20ed869d0ae5df01387f5cfd"
+}
